@@ -2,11 +2,10 @@ from datetime import datetime, timedelta
 
 from django.contrib.auth.models import User
 from loan_management.permission import IsAdmin, IsAgent
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.viewsets import ViewSet
 
 from .models import Loan, State
 from .serializers import LoanRequestSerializer, LoanSerializer
@@ -119,11 +118,12 @@ class EditLoanView(APIView):
 
 
 #viewset for returning issue managements filtered by request parameters
-class FilterLoanViewSet(ViewSet):
+class FilterLoanViewSet(viewsets.ViewSet):
 
     def get_queryset(self, request):
         #getting request parameters and setting None for those that are missing
         tenure = self.request.data.get('tenure', None)
+        interest_rate = self.request.data.get('interest_rate', None)
         create_date = self.request.data.get('created_at', None)
         status = self.request.data.get('state', None)
         
@@ -134,6 +134,7 @@ class FilterLoanViewSet(ViewSet):
         set_if_not_none(data, 'tenure', tenure)
         set_if_not_none(data, 'created_at', create_date)
         set_if_not_none(data, 'state', status)
+        set_if_not_none(data, 'interest_rate', interest_rate)
         
         #apply filter to queryset and sort in order of latest first
         loan = Loan.objects.filter(**data)
