@@ -5,5 +5,7 @@ urlpatterns = [
     path('create-request', CreateLoanView.as_view()),
     path('approve/<id>', ApproveLoanView.as_view()),
     path('edit/<id>', EditLoanView.as_view()),
-    path('filter', FilterLoanView.as_view()),
+    path('filter', FilterLoanViewSet.as_view({
+        'post': 'list',
+    })),
 ]

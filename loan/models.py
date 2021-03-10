@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-import datetime
+from django.utils import timezone
 
 # Create your models here.
 class State(models.Model):
@@ -14,5 +14,5 @@ class Loan(models.Model):
     tenure = models.IntegerField()
     state = models.ForeignKey(State, on_delete=models.DO_NOTHING)
     customer = models.ForeignKey(User, on_delete=models.DO_NOTHING)
-    created_at = models.DateTimeField(default=datetime.datetime.now())
-    expected_date_of_completion = models.DateField()
+    created_at = models.DateTimeField(default=timezone.now)
+    date_of_completion = models.DateField()

@@ -1,12 +1,16 @@
+from datetime import datetime, timedelta
+
 from django.contrib.auth.models import User
 from loan_management.permission import IsAdmin, IsAgent
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
 from .models import Loan, State
-from .serializers import LoanSerializer, LoanRequestSerializer
+from .serializers import LoanRequestSerializer, LoanSerializer
+from .utils import set_if_not_none
 
 
 # handle new loan request creation processing
@@ -29,14 +33,28 @@ class CreateLoanView(APIView):
         data['state'] = new_state
 
         # calculate expected date of completion
-        creation = data['created_at']
+        creation = data.get('created_at', datetime.now().strftime('%Y-%m-%dT%H:%M:%S'))
         tenure = data['tenure']
+
+        creation_date = datetime.strptime(creation, '%Y-%m-%dT%H:%M:%S').date()
+        completion_date = creation_date + timedelta(days=30)
+
+        data['date_of_completion'] = completion_date.strftime('%Y-%m-%d')
+
+        user = User.objects.get(id=data['customer'])
         
         # create new loan object with given params
-        loan_request = Loan.objects.create(data)
+        loan_request = Loan.objects.create(amount=data['amount'],
+                                            interest_rate=data['interest_rate'],
+                                            tenure=data['tenure'],
+                                            created_at=creation,
+                                            state=data['state'],
+                                            customer=user,
+                                            date_of_completion=data['date_of_completion'])
         if loan_request is None:
             return Response({'message': "Something went wrong", 'error': True}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        loan_request.save()
         response = LoanSerializer(instance=loan_request)
 
         # return response
@@ -100,33 +118,46 @@ class EditLoanView(APIView):
         return Response({'message': serialized.errors, 'error': True}, status=status.HTTP_400_BAD_REQUEST)
 
 
-# view to handle filtering requests
-class FilterLoanView(APIView):
-    permission_classes = [IsAuthenticated,]
+#viewset for returning issue managements filtered by request parameters
+class FilterLoanViewSet(ViewSet):
 
-    def post(self, request, *args, **kwargs):
-        # get request params for filtering
-        serialized_data = LoanSerializer(data=request.data)
+    def get_queryset(self, request):
+        #getting request parameters and setting None for those that are missing
+        tenure = self.request.data.get('tenure', None)
+        create_date = self.request.data.get('created_at', None)
+        status = self.request.data.get('state', None)
+        
+        #empty dictionary to contain the final filter parameters
+        data = {}
 
-        # if serializer data is not valid, return error
-        if not serialized_data.is_valid():
-            return Response({'message': serialized_data.errors, 'error': True}, status=status.HTTP_400_BAD_REQUEST)
+        #set filter parameters if they are not None in the request body
+        set_if_not_none(data, 'tenure', tenure)
+        set_if_not_none(data, 'created_at', create_date)
+        set_if_not_none(data, 'state', status)
+        
+        #apply filter to queryset and sort in order of latest first
+        loan = Loan.objects.filter(**data)
 
-        # response object
-        response_data = dict()
-        response_data['message'] = "Data Retrieved"
-        response_data['error'] = False
-        response_data['data'] = list()
-
-        # filter loans on the basis of request data
-        loans = Loan.objects.filter(serialized_data.data)
-
-        # if user is a customer then he can only see his own loans
+        # customer can only see their own loans
         if request.user.groups.filter(name='customer').exists():
-            loans = loans.filter(user=request.user)
+            loan = loan.filter(customer=request.user)
         
-        # collect all loans after filtering
-        for loan in loans:
-            response_data['data'].append(loan)
+        # return queryset
+        return loan
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset(request)
+        serializer = LoanSerializer(queryset, many=True)
+        permission_classes = [IsAuthenticated,]
+    
+        #if serialized data is empty
+        if len(serializer.data) == 0:
+            return Response({'message': "No data matched given filters", 'error': True}, status=status.HTTP_404_NOT_FOUND)
         
+        #create response object and send to client as response
+        response_data = dict()
+        response_data['message'] = "Data Collected"
+        response_data['error'] = False
+        response_data['data'] = serializer.data
+
         return Response(response_data, status=status.HTTP_200_OK)
